@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 const TRACKING_API_URL = 'https://xpresion.caperindia.com/api/v1/Tracking/Tracking'
+const POD_IMAGE_API_URL = 'https://xpresion.caperindia.com/api/v1/Tracking/PODImage'
 const TRACKING_USER_ID = 'API'
 const TRACKING_PASSWORD = 'Api@70292'
 const MAX_AWB = 10
@@ -17,6 +18,26 @@ function parseAwbList(raw) {
         .filter(Boolean),
     ),
   ]
+}
+
+async function fetchPodImage(awbNo) {
+  const response = await fetch(POD_IMAGE_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      AWBNo: awbNo,
+      UserID: TRACKING_USER_ID,
+      Password: TRACKING_PASSWORD,
+    }),
+  })
+
+  if (!response.ok) return null
+
+  const decoded = await response.json()
+  const resp = decoded?.Response
+  if (!resp || String(resp.ErrorCode) !== '0' || !resp.PODImage) return null
+
+  return Buffer.from(resp.PODImage, 'base64')
 }
 
 async function fetchTracking(awbNo) {
@@ -94,6 +115,36 @@ function trackingDevApiPlugin() {
     name: 'tracking-dev-api',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
+        if (req.url?.startsWith('/api/pod-image')) {
+          if (req.method !== 'GET') {
+            sendJson(res, 405, { message: 'Method not allowed' })
+            return
+          }
+
+          const awb = new URL(req.url, 'http://localhost').searchParams.get('awb')?.trim()
+          if (!awb) {
+            sendJson(res, 400, { message: 'AWB number is required' })
+            return
+          }
+
+          try {
+            const imageBuffer = await fetchPodImage(awb)
+            if (!imageBuffer) {
+              sendJson(res, 404, { message: 'POD not available' })
+              return
+            }
+
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'image/jpeg')
+            res.setHeader('Cache-Control', 'private, max-age=3600')
+            res.end(imageBuffer)
+          } catch (error) {
+            console.error('POD image dev API error:', error)
+            sendJson(res, 500, { message: 'Unable to fetch POD image' })
+          }
+          return
+        }
+
         if (!req.url?.startsWith('/api/tracking')) {
           next()
           return

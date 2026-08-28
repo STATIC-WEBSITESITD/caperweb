@@ -77,6 +77,7 @@ function ShipmentResult({ item, isOpen, onToggle }) {
                   <th>Delivery Date</th>
                   <th>Delivery Time</th>
                   <th>Receiver</th>
+                  <th>POD</th>
                 </tr>
               </thead>
               <tbody>
@@ -93,6 +94,7 @@ function ShipmentResult({ item, isOpen, onToggle }) {
                   <td>{displayValue(t.DeliveryDate1 || t.DeliveryDate)}</td>
                   <td>{displayValue(t.DeliveryTime1 || t.DeliveryTime)}</td>
                   <td>{displayValue(t.ReceiverName)}</td>
+                  <td>{t.PODImage === 'Yes' ? <a href={`/api/pod-image?awb=${encodeURIComponent(t.AWBNo || awb)}`} target="_blank" rel="noopener noreferrer">View</a> : ''}</td>
                 </tr>
               </tbody>
             </table>
