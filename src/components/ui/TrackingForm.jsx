@@ -22,11 +22,15 @@ function displayValue(value) {
   return value
 }
 
+const HIDDEN_POD_CUSTOMER_CODES = new Set(['1172'])
+
 function ShipmentResult({ item, isOpen, onToggle }) {
   const t = item.tracking || {}
   const events = item.events || []
   const awb = t.AWBNo || item.awb
   const status = t.Status || ''
+  const customerCode = String(item.additionalData?.[0]?.CustomerCode || '')
+  const showPod = t.PODImage === 'Yes' && !HIDDEN_POD_CUSTOMER_CODES.has(customerCode)
 
   return (
     <div className="tracking-shipment">
@@ -94,7 +98,19 @@ function ShipmentResult({ item, isOpen, onToggle }) {
                   <td>{displayValue(t.DeliveryDate1 || t.DeliveryDate)}</td>
                   <td>{displayValue(t.DeliveryTime1 || t.DeliveryTime)}</td>
                   <td>{displayValue(t.ReceiverName)}</td>
-                  <td>{t.PODImage === 'Yes' ? <a href={`/api/pod-image?awb=${encodeURIComponent(t.AWBNo || awb)}`} target="_blank" rel="noopener noreferrer">View</a> : ''}</td>
+                  <td>
+                    {showPod ? (
+                      <a
+                        href={`/api/pod-image?awb=${encodeURIComponent(t.AWBNo || awb)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        View
+                      </a>
+                    ) : (
+                      ''
+                    )}
+                  </td>
                 </tr>
               </tbody>
             </table>

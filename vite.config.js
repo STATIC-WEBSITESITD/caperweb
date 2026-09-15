@@ -48,6 +48,7 @@ async function fetchTracking(awbNo) {
       AWBNo: awbNo,
       UserID: TRACKING_USER_ID,
       Password: TRACKING_PASSWORD,
+      ShowAllFields: 'Yes',
     }),
   })
 
@@ -76,6 +77,7 @@ async function fetchTracking(awbNo) {
       message: resp.ErrorDisc || 'Success',
       tracking: resp.Tracking[0] || null,
       events: resp.Events || [],
+      additionalData: resp.AdditionalData || [],
     }
   }
 
@@ -85,6 +87,7 @@ async function fetchTracking(awbNo) {
     message: resp?.ErrorDisc || 'No tracking data found',
     tracking: null,
     events: [],
+    additionalData: [],
   }
 }
 
