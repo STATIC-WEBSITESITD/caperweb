@@ -65,7 +65,7 @@ export default function Home() {
 
   return (
     <>
-      <HeroVideo videoId="1205730875" title="Caper India" />
+      <HeroVideo videoId="1205730875" title="Caper India" autoplay />
 
       <section className="section pt-100" {...aos('fade-up')}>
         <div className="container">

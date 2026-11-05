@@ -83,7 +83,7 @@ export default function HeroVideo({
   title = 'Caper Video',
   className = 'section d-block pt-30',
   layout = 'section',
-  muted = false,
+  autoplay = false,
   lazy = false,
 }) {
   const { pathname } = useLocation()
@@ -129,6 +129,18 @@ export default function HeroVideo({
     const isStale = () =>
       cancelledRef.current || initGeneration !== initGenerationRef.current
 
+    const startAutoplay = async (player) => {
+      // Browsers only allow autoplay when muted — keep full adaptive quality.
+      await player.setMuted(true)
+      await player.setVolume(0)
+      try {
+        await player.setQuality('auto')
+      } catch {
+        // Some embeds disallow quality overrides; adaptive still applies.
+      }
+      await player.play()
+    }
+
     const initPlayer = async () => {
       await waitForPageReady()
       if (isStale()) return
@@ -160,6 +172,10 @@ export default function HeroVideo({
         player.on('play', () => setIsPlaying(true))
         player.on('pause', () => setIsPlaying(false))
         player.on('ended', () => setIsPlaying(false))
+
+        if (autoplay) {
+          await startAutoplay(player).catch(() => {})
+        }
       } catch {
         // URL params still allow muted playback when API init fails.
       }
@@ -179,7 +195,7 @@ export default function HeroVideo({
       }
       playerRef.current = null
     }
-  }, [videoId, isVisible, playerId])
+  }, [videoId, isVisible, playerId, autoplay])
 
   const handleTogglePlayback = async () => {
     const player = playerRef.current
@@ -187,6 +203,15 @@ export default function HeroVideo({
 
     try {
       const paused = await player.getPaused()
+
+      // First tap on a muted autoplay video should unmute, not pause.
+      if (!paused && !hasUnmutedRef.current && autoplay) {
+        await setExclusiveUnmuted(playerId)
+        await player.setMuted(false)
+        await player.setVolume(1)
+        hasUnmutedRef.current = true
+        return
+      }
 
       if (paused) {
         if (!hasUnmutedRef.current) {
@@ -207,7 +232,7 @@ export default function HeroVideo({
   if (!videoId) return null
 
   const vimeoParams = buildVimeoParams({
-    autoplay: false,
+    autoplay,
     controls: false,
   })
 
