@@ -151,25 +151,11 @@ body {
 
 .box-video__control {
   position: absolute;
+  inset: 0;
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-
-.box-video__control--paused {
-  inset: 0;
-}
-
-.box-video__tap {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
   margin: 0;
   padding: 0;
   border: 0;
@@ -181,26 +167,55 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 52px;
+  height: 52px;
+  font-size: 17px;
   border-radius: 50%;
   background: rgba(239, 68, 68, 0.88);
   color: #fff;
   box-shadow: 0 4px 14px rgba(220, 38, 38, 0.18);
-  transition: transform 0.2s ease, background-color 0.2s ease;
+  transition: transform 0.2s ease, background-color 0.2s ease, opacity 0.2s ease;
 }
 
-.box-video__control--paused .box-video__control-icon {
-  width: 52px;
-  height: 52px;
-  font-size: 17px;
+.box-video__control--playing .box-video__control-icon {
+  opacity: 0.92;
 }
 
-.box-video__control:hover .box-video__control-icon {
+.box-video__control:hover .box-video__control-icon,
+.box-video__control:focus-visible .box-video__control-icon {
   transform: scale(1.04);
   background: rgba(248, 113, 113, 0.92);
+  opacity: 1;
 }
 
 .box-video__control--paused .box-video__control-icon i {
   margin-left: 3px;
+}
+
+.box-video__mute {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.72);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.box-video__mute:hover,
+.box-video__mute:focus-visible {
+  background: rgba(15, 23, 42, 0.9);
+  transform: scale(1.04);
 }
 
 .hero-intro-text {

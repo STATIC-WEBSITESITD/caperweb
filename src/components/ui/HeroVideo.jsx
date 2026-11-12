@@ -6,7 +6,7 @@ import {
 } from '../../utils/videoCoordinator'
 
 const BASE_VIMEO_PARAMS =
-  'title=0&byline=0&portrait=0&loop=0&autoplay=1&autopause=0&playsinline=1&dnt=1'
+  'title=0&byline=0&portrait=0&loop=0&autoplay=1&autopause=0&muted=1&playsinline=1&dnt=1&background=0'
 
 const MAX_PLAYS = 1
 
@@ -14,9 +14,9 @@ function buildVimeoParams({ autoplay = true, controls = true } = {}) {
   const params = BASE_VIMEO_PARAMS.replace(
     'autoplay=1',
     `autoplay=${autoplay ? 1 : 0}`,
-  )
+  ).replace('muted=1', `muted=${autoplay ? 1 : 0}`)
 
-  return `${params}&muted=1${controls ? '' : '&controls=0'}`
+  return `${params}${controls ? '' : '&controls=0'}`
 }
 
 let vimeoApiPromise
@@ -47,7 +47,7 @@ function waitForIframe(iframe) {
     }
 
     iframe.addEventListener('load', () => resolve(), { once: true })
-    setTimeout(resolve, 4000)
+    setTimeout(resolve, 2500)
   })
 }
 
@@ -78,6 +78,10 @@ function waitForPageReady() {
   })
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 export default function HeroVideo({
   videoId,
   title = 'Caper Video',
@@ -94,6 +98,7 @@ export default function HeroVideo({
   const initGenerationRef = useRef(0)
   const [isVisible, setIsVisible] = useState(!lazy)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [isMuted, setIsMuted] = useState(autoplay)
   const hasUnmutedRef = useRef(false)
   const playCountRef = useRef(0)
 
@@ -101,7 +106,8 @@ export default function HeroVideo({
     playCountRef.current = 0
     hasUnmutedRef.current = false
     setIsPlaying(false)
-  }, [videoId, pathname])
+    setIsMuted(autoplay)
+  }, [videoId, pathname, autoplay])
 
   useEffect(() => {
     if (!lazy || !containerRef.current) return undefined
@@ -130,15 +136,42 @@ export default function HeroVideo({
       cancelledRef.current || initGeneration !== initGenerationRef.current
 
     const startAutoplay = async (player) => {
-      // Browsers only allow autoplay when muted — keep full adaptive quality.
+      // Browsers only allow autoplay when muted.
       await player.setMuted(true)
       await player.setVolume(0)
+      setIsMuted(true)
+
       try {
         await player.setQuality('auto')
       } catch {
         // Some embeds disallow quality overrides; adaptive still applies.
       }
-      await player.play()
+
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        if (isStale()) return
+
+        try {
+          await player.play()
+          const paused = await player.getPaused()
+          if (!paused) {
+            setIsPlaying(true)
+            return
+          }
+        } catch {
+          // Retry — Vimeo/player may not be ready yet.
+        }
+
+        await delay(350 * (attempt + 1))
+      }
+    }
+
+    const syncPlaybackState = async (player) => {
+      try {
+        const paused = await player.getPaused()
+        if (!isStale()) setIsPlaying(!paused)
+      } catch {
+        // Ignore sync errors from a destroyed player.
+      }
     }
 
     const initPlayer = async () => {
@@ -166,15 +199,28 @@ export default function HeroVideo({
           playCountRef.current += 1
           if (playCountRef.current < MAX_PLAYS) {
             player.play().catch(() => {})
+          } else {
+            setIsPlaying(false)
           }
         })
 
         player.on('play', () => setIsPlaying(true))
         player.on('pause', () => setIsPlaying(false))
-        player.on('ended', () => setIsPlaying(false))
+        player.on('volumechange', async () => {
+          try {
+            const muted = await player.getMuted()
+            const volume = await player.getVolume()
+            if (!isStale()) setIsMuted(muted || volume === 0)
+          } catch {
+            // Ignore volume sync errors from destroyed players.
+          }
+        })
+
+        await syncPlaybackState(player)
 
         if (autoplay) {
-          await startAutoplay(player).catch(() => {})
+          await startAutoplay(player)
+          if (!isStale()) await syncPlaybackState(player)
         }
       } catch {
         // URL params still allow muted playback when API init fails.
@@ -191,6 +237,7 @@ export default function HeroVideo({
         playerRef.current.off('ended')
         playerRef.current.off('play')
         playerRef.current.off('pause')
+        playerRef.current.off('volumechange')
         playerRef.current.destroy().catch(() => {})
       }
       playerRef.current = null
@@ -204,28 +251,45 @@ export default function HeroVideo({
     try {
       const paused = await player.getPaused()
 
-      // First tap on a muted autoplay video should unmute, not pause.
-      if (!paused && !hasUnmutedRef.current && autoplay) {
-        await setExclusiveUnmuted(playerId)
-        await player.setMuted(false)
-        await player.setVolume(1)
-        hasUnmutedRef.current = true
-        return
-      }
-
       if (paused) {
+        // User gesture — safe to unmute when they intentionally press play.
         if (!hasUnmutedRef.current) {
           await setExclusiveUnmuted(playerId)
           await player.setMuted(false)
           await player.setVolume(1)
           hasUnmutedRef.current = true
+          setIsMuted(false)
         }
         await player.play()
+        setIsPlaying(true)
       } else {
         await player.pause()
+        setIsPlaying(false)
       }
     } catch {
       // Playback may be blocked until the player is fully ready.
+    }
+  }
+
+  const handleToggleMute = async (event) => {
+    event.stopPropagation()
+    const player = playerRef.current
+    if (!player) return
+
+    try {
+      if (isMuted) {
+        await setExclusiveUnmuted(playerId)
+        await player.setMuted(false)
+        await player.setVolume(1)
+        hasUnmutedRef.current = true
+        setIsMuted(false)
+      } else {
+        await player.setMuted(true)
+        await player.setVolume(0)
+        setIsMuted(true)
+      }
+    } catch {
+      // Ignore mute toggle errors from an unready player.
     }
   }
 
@@ -254,23 +318,31 @@ export default function HeroVideo({
             {!isPlaying && (
               <div className="box-video__overlay" aria-hidden="true" />
             )}
-            {isPlaying ? (
+            <button
+              type="button"
+              className={`box-video__control ${
+                isPlaying
+                  ? 'box-video__control--playing'
+                  : 'box-video__control--paused'
+              }`}
+              onClick={handleTogglePlayback}
+              aria-label={`${isPlaying ? 'Pause' : 'Play'} ${title}`}
+            >
+              <span className="box-video__control-icon" aria-hidden="true">
+                <i className={`fa-solid ${isPlaying ? 'fa-pause' : 'fa-play'}`} />
+              </span>
+            </button>
+            {autoplay && (
               <button
                 type="button"
-                className="box-video__tap"
-                onClick={handleTogglePlayback}
-                aria-label={`Pause ${title}`}
-              />
-            ) : (
-              <button
-                type="button"
-                className="box-video__control box-video__control--paused"
-                onClick={handleTogglePlayback}
-                aria-label={`Play ${title}`}
+                className="box-video__mute"
+                onClick={handleToggleMute}
+                aria-label={isMuted ? `Unmute ${title}` : `Mute ${title}`}
               >
-                <span className="box-video__control-icon" aria-hidden="true">
-                  <i className="fa-solid fa-play" />
-                </span>
+                <i
+                  className={`fa-solid ${isMuted ? 'fa-volume-xmark' : 'fa-volume-high'}`}
+                  aria-hidden="true"
+                />
               </button>
             )}
           </>
