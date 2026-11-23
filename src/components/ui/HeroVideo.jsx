@@ -82,6 +82,13 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function formatVideoTime(seconds) {
+  const total = Math.floor(seconds)
+  const minutes = Math.floor(total / 60)
+  const remainder = String(total % 60).padStart(2, '0')
+  return `${minutes}:${remainder}`
+}
+
 export default function HeroVideo({
   videoId,
   title = 'Caper Video',
@@ -101,12 +108,20 @@ export default function HeroVideo({
   const [isMuted, setIsMuted] = useState(autoplay)
   const hasUnmutedRef = useRef(false)
   const playCountRef = useRef(0)
+  const pendingSeekRef = useRef(null)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [hasStarted, setHasStarted] = useState(false)
 
   useEffect(() => {
     playCountRef.current = 0
     hasUnmutedRef.current = false
     setIsPlaying(false)
     setIsMuted(autoplay)
+    pendingSeekRef.current = null
+    setCurrentTime(0)
+    setDuration(0)
+    setHasStarted(false)
   }, [videoId, pathname, autoplay])
 
   useEffect(() => {
@@ -168,7 +183,10 @@ export default function HeroVideo({
     const syncPlaybackState = async (player) => {
       try {
         const paused = await player.getPaused()
-        if (!isStale()) setIsPlaying(!paused)
+        if (!isStale()) {
+          setIsPlaying(!paused)
+          if (!paused) setHasStarted(true)
+        }
       } catch {
         // Ignore sync errors from a destroyed player.
       }
@@ -195,7 +213,18 @@ export default function HeroVideo({
 
         unregisterRef.current = registerVimeoPlayer(playerId, player)
 
-        player.on('ended', () => {
+        const syncTimeline = ({ seconds, duration: total }) => {
+          if (isStale()) return
+          setHasStarted(true)
+          if (!pendingSeekRef.current) setCurrentTime(seconds)
+          setDuration(total)
+        }
+
+        player.on('timeupdate', syncTimeline)
+        player.on('seeked', syncTimeline)
+        player.on('ended', (progress) => {
+          if (isStale()) return
+          syncTimeline(progress)
           playCountRef.current += 1
           if (playCountRef.current < MAX_PLAYS) {
             player.play().catch(() => {})
@@ -204,7 +233,11 @@ export default function HeroVideo({
           }
         })
 
-        player.on('play', () => setIsPlaying(true))
+        player.on('play', () => {
+          if (isStale()) return
+          setIsPlaying(true)
+          setHasStarted(true)
+        })
         player.on('pause', () => setIsPlaying(false))
         player.on('volumechange', async () => {
           try {
@@ -215,6 +248,12 @@ export default function HeroVideo({
             // Ignore volume sync errors from destroyed players.
           }
         })
+
+        player.getDuration()
+          .then((total) => {
+            if (!isStale()) setDuration((knownDuration) => knownDuration || total)
+          })
+          .catch(() => {})
 
         await syncPlaybackState(player)
 
@@ -234,6 +273,8 @@ export default function HeroVideo({
       unregisterRef.current?.()
       unregisterRef.current = null
       if (playerRef.current) {
+        playerRef.current.off('timeupdate')
+        playerRef.current.off('seeked')
         playerRef.current.off('ended')
         playerRef.current.off('play')
         playerRef.current.off('pause')
@@ -242,7 +283,7 @@ export default function HeroVideo({
       }
       playerRef.current = null
     }
-  }, [videoId, isVisible, playerId, autoplay])
+  }, [videoId, isVisible, playerId, autoplay, pathname])
 
   const handleTogglePlayback = async () => {
     const player = playerRef.current
@@ -293,6 +334,30 @@ export default function HeroVideo({
     }
   }
 
+  const handleSeek = async (event) => {
+    const player = playerRef.current
+    if (!player || !hasStarted) return
+
+    const seconds = event.currentTarget.valueAsNumber
+    const request = {}
+    pendingSeekRef.current = request
+    setCurrentTime(seconds)
+
+    try {
+      const actualTime = await player.setCurrentTime(seconds)
+      if (pendingSeekRef.current === request) setCurrentTime(actualTime)
+    } catch {
+      try {
+        const actualTime = await player.getCurrentTime()
+        if (pendingSeekRef.current === request) setCurrentTime(actualTime)
+      } catch {
+        // The player may have been removed during navigation.
+      }
+    } finally {
+      if (pendingSeekRef.current === request) pendingSeekRef.current = null
+    }
+  }
+
   if (!videoId) return null
 
   const vimeoParams = buildVimeoParams({
@@ -306,7 +371,7 @@ export default function HeroVideo({
         {isVisible ? (
           <>
             <iframe
-              key={`${pathname}-${videoId}`}
+              key={`${pathname}-${videoId}-${autoplay}`}
               className="js-caper-video"
               data-video-id={videoId}
               src={`https://player.vimeo.com/video/${videoId}?${vimeoParams}`}
@@ -344,6 +409,28 @@ export default function HeroVideo({
                   aria-hidden="true"
                 />
               </button>
+            )}
+            {duration > 0 && (
+              <div className="box-video__timeline">
+                <input
+                  className="box-video__seek"
+                  type="range"
+                  min={0}
+                  max={duration}
+                  step="any"
+                  value={Math.min(currentTime, duration)}
+                  disabled={!hasStarted}
+                  onChange={handleSeek}
+                  aria-label={`Seek ${title}`}
+                  aria-valuetext={`${formatVideoTime(currentTime)} of ${formatVideoTime(duration)}`}
+                  style={{
+                    '--video-progress': `${Math.min(100, (currentTime / duration) * 100)}%`,
+                  }}
+                />
+                <span className="box-video__time" aria-hidden="true">
+                  {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
+                </span>
+              </div>
             )}
           </>
         ) : (
