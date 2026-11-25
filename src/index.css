@@ -654,3 +654,15 @@ body {
     padding: 6px;
   }
 }
+
+/* Hide center pause icon during video playback */
+.box-video__control--playing .box-video__control-icon,
+.box-video__control--playing:hover .box-video__control-icon {
+  opacity: 0;
+}
+
+/* Show center play icon when paused */
+.box-video__control--paused .box-video__control-icon,
+.box-video__control--playing:focus-visible .box-video__control-icon {
+  opacity: 1;
+}
